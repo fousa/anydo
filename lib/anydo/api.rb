@@ -25,7 +25,7 @@ class Api
         yield cookie
     end
 
-    def list_tasks
+    def list(tomorrow=false)
         authenticate do |cookie|
             result = connection.get do |request|
                 request.url "/me/tasks?responseType=flat&includeDeleted=0&includeDone=0"
@@ -35,13 +35,14 @@ class Api
             if result.status == 401
             else
                 tasks = JSON.parse(result.body)
-                tasks = tasks.select { |t| t["status"] == "UNCHECKED" && todays_task?(t) }
+                tasks = tasks.select { |t| t["status"] == "UNCHECKED" }
+                tasks = tasks.select { |t| tomorrow ? tomorrows_task?(t) : todays_task?(t) }
                 tasks = tasks.sort_by { |t| t["dueDate"].to_i }
                 tasks.each_with_index do |t, i|
                     if t["dueDate"] != 0 && time = parse_time(t["dueDate"])
-                        puts "#{i+1}. ◻︎ #{t["title"]} (#{time.hour}:#{time.min})"
+                        puts "#{i+1}| ◻︎ #{t["title"]} (#{time.hour}:#{"%02i" % time.min})"
                     else
-                        puts "#{i+1}. ◻︎ #{t["title"]}"
+                        puts "#{i+1}| ◻︎ #{t["title"]}"
                     end
                 end
             end
@@ -86,7 +87,21 @@ class Api
     def todays_task?(task)
         today?(parse_time(task["dueDate"]))
     end
+
+    def tomorrow?(time)
+        return false if time.nil?
+
+        tomorrow = Time.new + 86400
+        tomorrow_start =  Time.new(tomorrow.year, tomorrow.month, tomorrow.day)
+        tomorrow_end =  tomorrow_start + 86399
+
+        (tomorrow_start..tomorrow_end).cover?(time)
+    end
+
+    def tomorrows_task?(task)
+        tomorrow?(parse_time(task["dueDate"]))
+    end
 end
 
 api = Api.new
-api.list_tasks
+api.list(false)
