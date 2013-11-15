@@ -1,5 +1,6 @@
 require "faraday"
 require "json"
+require "base64"
 
 class Api
     BASE_URL = "https://sm-prod.any.do"
@@ -18,11 +19,36 @@ class Api
             j_password: "bbb",
             _spring_security_remember_me: "on"
         }
-        result = connection.post "/j_spring_security_check", params
+        result = connection.post do |request|
+            request.url "/j_spring_security_check"
+            request.body = params
+        end
         cookie = reformat_cookies result.headers["set-cookie"]
         raise "INVALID USERNAME/PASSWORD" unless cookie
 
         yield cookie
+    end
+
+    def create(title)
+        authenticate do |cookie|
+            params = [{
+                id: generate_global_id,
+                priority: "Normal",
+                status: "UNCHECKED",
+                title: title
+            }]
+            result = connection.post do |request|
+                request.url "/me/tasks"
+                request.headers['Cookie'] = cookie
+                request.headers['Content-Type'] = "application/json"
+                request.body = params.to_json
+            end
+            if result.status == 401
+                raise "CREATE FAILED" unless cookie
+            else
+                puts "◻︎ '#{title}'-task created"
+            end
+        end
     end
 
     def list(tomorrow=false)
@@ -33,6 +59,7 @@ class Api
                 request.headers['Content-Type'] = "application/json"
             end
             if result.status == 401
+                raise "FETCH FAILED" unless cookie
             else
                 tasks = JSON.parse(result.body)
                 tasks = tasks.select { |t| t["status"] == "UNCHECKED" }
@@ -101,7 +128,13 @@ class Api
     def tomorrows_task?(task)
         tomorrow?(parse_time(task["dueDate"]))
     end
+
+    def generate_global_id
+        random_string = (0...16).map{ ('a'..'z').to_a[rand(26)] }.join
+        Base64.encode64(random_string).gsub("+", "-").gsub("/", "_").gsub("\n", "")
+    end
 end
 
 api = Api.new
-api.list(false)
+#api.list(false)
+api.create("piepken")
