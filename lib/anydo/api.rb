@@ -1,6 +1,7 @@
 require "faraday"
 require "json"
 require "base64"
+require 'highline/import'
 
 class Api
     BASE_URL = "https://sm-prod.any.do"
@@ -51,7 +52,23 @@ class Api
         end
     end
 
-    def list(tomorrow=false)
+    def update(task, &block)
+        authenticate do |cookie|
+            result = connection.put do |request|
+                request.url "/me/tasks/#{task["id"]}"
+                request.headers['Cookie'] = cookie
+                request.headers['Content-Type'] = "application/json"
+                request.body = task.to_json
+            end
+            if result.status == 401
+                raise "UPDATE FAILED" unless cookie
+            else
+                yield
+            end
+        end
+    end
+
+    def list(tomorrow=false, finish=false)
         authenticate do |cookie|
             result = connection.get do |request|
                 request.url "/me/tasks?responseType=flat&includeDeleted=0&includeDone=0"
@@ -65,11 +82,27 @@ class Api
                 tasks = tasks.select { |t| t["status"] == "UNCHECKED" }
                 tasks = tasks.select { |t| tomorrow ? tomorrows_task?(t) : todays_task?(t) }
                 tasks = tasks.sort_by { |t| t["dueDate"].to_i }
-                tasks.each_with_index do |t, i|
-                    if t["dueDate"] != 0 && time = parse_time(t["dueDate"])
-                        puts "#{i+1}| ◻︎ #{t["title"]} (#{time.hour}:#{"%02i" % time.min})"
-                    else
-                        puts "#{i+1}| ◻︎ #{t["title"]}"
+
+                if finish
+                    piep = nil
+                    choose do |menu|
+                        menu.prompt = "\nSelect the todo you just completed: "
+                        tasks.each_with_index do |t, i|
+                            menu.choice t["title"] do
+                                t[:status] = "CHECKED"
+                                update t do
+                                    say "Finished task '#{t["title"]}'"
+                                end
+                            end
+                        end
+                    end
+                else
+                    tasks.each_with_index do |t, i|
+                        if t["dueDate"] != 0 && time = parse_time(t["dueDate"])
+                            puts "◻︎ #{t["title"]} (#{time.hour}:#{"%02i" % time.min})"
+                        else
+                            puts "◻︎ #{t["title"]}"
+                        end
                     end
                 end
             end
@@ -136,5 +169,5 @@ class Api
 end
 
 api = Api.new
-#api.list(false)
-api.create("piepken")
+api.list(false, true)
+#api.create("piepken")
